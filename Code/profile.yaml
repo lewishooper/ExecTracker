@@ -1,0 +1,73 @@
+defaults:
+  heading_levels: ["h2","h3"]
+  keywords:
+    - leadership
+    - executive
+    - senior leadership
+    - executive team
+    - board
+    - board of directors
+  title_variants_extra: []
+  include_headings: true
+  include_subheadings: true
+  include_h4_in_span: true
+  include_name_heading: true
+  synth_name_title_line: true
+  min_chars: 120
+  min_confidence: 1
+  window_sentences: 2
+  use_css_fallback: true
+  css_min_cards: 3
+  use_chromote: false
+  chromote_wait_ms: 2200
+
+domains:
+  "www.shn.ca":
+    heading_levels: ["h1","h2","h3","h4"]
+    keywords:
+      - executive leadership
+      - executive leadership team
+      - leadership team
+      - hospital leadership
+      - corporate leadership
+    title_variants_extra:
+      - executive vice president
+      - evp
+      - chief strategy officer
+      - cso
+      - chief communications officer
+      - cco
+    min_chars: 40
+
+  "www.sickkids.ca":
+    heading_levels: ["h1","h2","h3","h4"]
+    keywords:
+      - executive team
+      - leadership team
+      - senior leadership
+    title_variants_extra:
+      - executive vice president
+      - evp
+      - vice president
+      - vp
+      - chief nursing officer
+      - chief medical officer
+    min_chars: 40
+    use_chromote: true
+    chromote_wait_ms: 2500
+
+  "www.uhn.ca":
+    heading_levels: ["h1","h2","h3","h4"]
+    keywords:
+      - our leaders
+      - leadership team
+      - executive leadership
+      - senior leadership
+    title_variants_extra:
+      - executive vice president
+      - evp
+      - vice president
+      - vp
+    min_chars: 40
+    use_chromote: true
+    chromote_wait_ms: 2500

@@ -155,3 +155,23 @@ diagnose_leadership_page <- function(
     nlp_error  = err_nlp %||% ""
   )
 }
+#working URLs
+#url <- "https://www.oakvalleyhealth.ca/about-us/meet-our-team/senior-leadership-team/" # Works
+# url<-"https://sunnybrook.ca/content/?page=executive-leadership"
+#url<- "https://www.stevensonhospital.ca/senior-leadership "
+#  Partial Failure
+#url<-"https://www.rvh.on.ca/about-rvh/senior-leadership-team/"
+
+# url<-"https://www.sinaihealth.ca/about-sinai-health/sinai-health-leadership"
+# Completely Failing URLS
+
+
+#url<-"https://www.shn.ca/about-us/hospital-leadership/"
+#url<-"https://www.sickkids.ca/en/about/leadership/"  # fails Try Chromote variant(Chatgpt)
+
+
+#url<-"https://www.uhn.ca/corporate/AboutUHN/Governance_Leadership/Pages/Our_Leaders.aspx"
+
+
+diag<-diagnose_leadership_page(url)
+print(diag,width=Inf)
