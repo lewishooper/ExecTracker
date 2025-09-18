@@ -5,7 +5,7 @@
 # - Saves .txt and extracts ALL NAME–TITLE–ORG candidates
 # Env: condaenv="myenv", model="en_core_web_md"
 # ============================================================
-
+#rm(list=ls())
 suppressPackageStartupMessages({
   library(robotstxt)
   library(httr2)
@@ -52,7 +52,42 @@ is_pdf_content <- function(resp) {
   ct <- httr2::resp_headers(resp)[["content-type"]] %||% ""
   stringr::str_detect(ct, "application/pdf")
 }
+### Load Profiles Helpers  From CHAT GPT
+# install.packages("yaml") if needed
+library(yaml)
+library(urltools)
+library(purrr)
+library(dplyr)
 
+# Merge lists recursively: domain overrides replace defaults
+list_merge <- function(base, override) {
+  if (is.null(override)) return(base)
+  for (nm in names(override)) {
+    if (is.list(base[[nm]]) && is.list(override[[nm]])) {
+      base[[nm]] <- list_merge(base[[nm]], override[[nm]])
+    } else {
+      base[[nm]] <- override[[nm]]
+    }
+  }
+  base
+}
+
+load_profiles <- function(path = "config/hospital_profiles.yaml") {
+  cfg <- yaml::read_yaml(path)
+  if (is.null(cfg$defaults)) stop("profiles yaml missing 'defaults'")
+  if (is.null(cfg$domains))  cfg$domains <- list()
+  cfg
+}
+
+profile_for_url <- function(url, profiles) {
+  dom <- urltools::url_parse(url)$domain
+  defaults <- profiles$defaults
+  domain_override <- profiles$domains[[dom]]
+  list_merge(defaults, domain_override)
+}
+
+
+## End Load Profiles 
 # ---------- Title lexicon & regex ----------
 TITLE_LEXICON <- c(
   # Exec core
@@ -101,6 +136,53 @@ init_spacy_safe <- function(model = .SPACY_MODEL, condaenv = .SPACY_CONDAENV, py
     })
   }
 }
+#### 
+# CSS Card Fall back Helper Fuction Generic non specific from CHATGPT
+css_card_fallback <- function(doc,
+                              min_cards = 3,
+                              name_sel  = "h1, h2, h3, .name, .card-title, .profile-name, .person__name, .title--name",
+                              title_sel = "h4, h5, .title, .role, .position, .card-subtitle, .profile-title, .person__role") {
+  # Find likely leadership containers and cards
+  containers <- rvest::html_elements(doc,
+                                     "section, article, .content, .container, .grid, .cards, [class*='leadership'], [class*='team'], [class*='profile'], [class*='people']"
+  )
+  if (length(containers) == 0) return("")
+  
+  # Inside those, find card-like blocks
+  cards <- rvest::html_elements(containers,
+                                ".card, .c-card, .card--person, .person, .profile, .team__member, .teaser, .tile, .grid__item, li, article"
+  )
+  if (length(cards) == 0) return("")
+  
+  # Extract name / title candidates per card
+  rows <- lapply(cards, function(card) {
+    nm <- rvest::html_text2(rvest::html_element(card, name_sel))
+    tt <- rvest::html_text2(rvest::html_element(card, title_sel))
+    nm <- stringr::str_squish(nm); tt <- stringr::str_squish(tt)
+    if (nzchar(nm) || nzchar(tt)) {
+      list(name = nm, title = tt, body = rvest::html_text2(card))
+    } else NULL
+  })
+  rows <- rows[!vapply(rows, is.null, logical(1))]
+  if (length(rows) < min_cards) return("")
+  
+  # Compose sections as markdown-like blocks: ## Name / ### Title / synthesized line / short body
+  parts <- vapply(rows, function(r) {
+    nm <- r$name; tt <- r$title; body <- normalize_text(r$body)
+    # keep body short to avoid duplication
+    if (nchar(body) > 1000) body <- substr(body, 1, 1000)
+    paste(
+      if (nzchar(nm)) paste0("## ", nm) else NULL,
+      if (nzchar(tt)) paste0("### ", tt) else NULL,
+      if (nzchar(nm) && nzchar(tt)) paste0(nm, ", ", tt) else NULL,
+      body,
+      sep = "\n"
+    )
+  }, character(1))
+  
+  paste(parts, collapse = "\n\n--- CARD ---\n\n")
+}
+#### end CSS Fall back code
 
 # ---------- Heading-aware section harvest (INCLUDES H2/H3/H4 lines) ----------
 
@@ -262,6 +344,76 @@ harvest_sections_by_headings <- function(
   out_sections <- out_sections[nchar(out_sections) > 0]
   paste(unique(out_sections), collapse = "\n\n--- SECTION BREAK ---\n\n")
 }
+#### 
+## Fetch Leaderhip profiled
+# from chatgpt
+# Requires: load_profiles(), profile_for_url(), build_title_regex(), harvest_sections_by_headings(),
+#           fetch_leadership_to_textfile() (for writing), css_card_fallback()
+
+fetch_leadership_profiled <- function(url,
+                                      profiles,
+                                      out_dir = "data/raw",
+                                      prefix  = "leaders") {
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  p <- profile_for_url(url, profiles)
+  
+  # Rebuild TITLE_REGEX for this domain (global used by harvester/extractor)
+  TITLES_RUN <- c(TITLE_LEXICON, p$title_variants_extra)
+  TITLE_REGEX <<- build_title_regex(TITLES_RUN)
+  
+  # 1) Fetch HTML (plain); if you later wire chromote, you can branch here
+  req <- httr2::request(url) |>
+    httr2::req_user_agent("profiled/1.0") |>
+    httr2::req_headers(Accept = "text/html,*/*;q=0.8") |>
+    httr2::req_timeout(30)
+  resp <- try(httr2::req_perform(req), silent = TRUE)
+  if (inherits(resp, "try-error") || httr2::resp_status(resp) >= 400) {
+    return(list(ok = FALSE, message = "fetch failed", text = "", file = NA_character_))
+  }
+  doc <- try(xml2::read_html(httr2::resp_body_string(resp)), silent = TRUE)
+  if (inherits(doc, "try-error")) {
+    return(list(ok = FALSE, message = "parse failed", text = "", file = NA_character_))
+  }
+  
+  # 2) Primary: heading-aware harvest with profile knobs
+  section_txt <- harvest_sections_by_headings(
+    doc,
+    heading_levels       = p$heading_levels,
+    keywords             = p$keywords,
+    title_variants       = TITLES_RUN,
+    include_headings     = p$include_headings,
+    include_subheadings  = p$include_subheadings,
+    include_h4_in_span   = p$include_h4_in_span,
+    include_name_heading = p$include_name_heading,
+    synth_name_title_line= p$synth_name_title_line,
+    min_chars            = p$min_chars
+  )
+  
+  # 3) If thin, try CSS fallback
+  if (!nzchar(section_txt) || nchar(section_txt) < p$min_chars) {
+    fallback_txt <- css_card_fallback(doc, min_cards = p$css_min_cards)
+    if (nzchar(fallback_txt)) {
+      # Prefer fallback if it’s richer
+      if (nchar(fallback_txt) > nchar(section_txt)) section_txt <- fallback_txt
+    }
+  }
+  
+  if (!nzchar(section_txt)) {
+    return(list(ok = FALSE, message = "no text after harvest/fallback", text = "", file = NA_character_))
+  }
+  
+  # 4) Save text file (same naming scheme)
+  host <- urltools::url_parse(url)$domain %||% "site"
+  path_bits <- urltools::url_parse(url)$path %||% ""
+  stem <- paste0(safe(host), "_", safe(path_bits)); if (!nzchar(stem)) stem <- safe(host)
+  stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
+  fname <- glue::glue("{prefix}_{stem}_{stamp}.txt") |> safe()
+  fpath <- file.path(out_dir, fname)
+  writeLines(section_txt, fpath, useBytes = TRUE)
+  
+  list(ok = TRUE, message = "ok", text = section_txt, file = fpath)
+}
+### end fetch leadership profiled from CHAT GPT
 
 
 # ---------- Fetch + write .txt using heading-aware harvest ----------
