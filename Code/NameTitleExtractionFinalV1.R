@@ -487,18 +487,21 @@ out_dir <- "E:/ExecTracker/Outputs"
 # working URLs
 #url <- "https://www.oakvalleyhealth.ca/about-us/meet-our-team/senior-leadership-team/" # Works
 # url<-"https://sunnybrook.ca/content/?page=executive-leadership"
- 
- #  Partial Failure
+# url<- "https://www.stevensonhospital.ca/senior-leadership"
+
  #url<-"https://www.rvh.on.ca/about-rvh/senior-leadership-team/"
  
 # url<-"https://www.sinaihealth.ca/about-sinai-health/sinai-health-leadership"
 # Completely Failing URLS
  
- #url<- "https://www.stevensonhospital.ca/senior-leadership "
-#url<-"https://www.shn.ca/about-us/hospital-leadership/"
-#url<-"https://www.sickkids.ca/en/about/leadership/"  # fails
  
- #url<- "https://www.stevensonhospital.ca/senior-leadership "
+#url<-"https://www.shn.ca/about-us/hospital-leadership/"
+#url<-"https://www.sickkids.ca/en/about/leadership"  # fails
+ 
+ 
+ 
+ url<-"https://www.uhn.ca/corporate/AboutUHN/Governance_Leadership/Pages/Our_Leaders.aspx"
+ 
 
 res <- fetch_leadership_to_textfile(url, out_dir = out_dir, prefix = "leaders")
 
