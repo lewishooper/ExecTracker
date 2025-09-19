@@ -157,7 +157,7 @@ diagnose_leadership_page <- function(
 }
 #working URLs
 #url <- "https://www.oakvalleyhealth.ca/about-us/meet-our-team/senior-leadership-team/" # Works
-# url<-"https://sunnybrook.ca/content/?page=executive-leadership"
+url<-"https://sunnybrook.ca/content/?page=executive-leadership"
 #url<- "https://www.stevensonhospital.ca/senior-leadership "
 #  Partial Failure
 #url<-"https://www.rvh.on.ca/about-rvh/senior-leadership-team/"

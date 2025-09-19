@@ -71,3 +71,28 @@ domains:
     min_chars: 40
     use_chromote: true
     chromote_wait_ms: 2500
+"sunnybrook.ca":
+    heading_levels: ["h1","h2"]         # include H1 so we latch onto the main section; H2 holds names
+    keywords:
+      - executive leadership            # match the section header
+      - leadership team
+      - senior leadership
+    title_variants_extra:
+      - executive vice president
+      - executive vice-president        # hyphenated style
+      - evp
+      - vice president
+      - vice-president                  # hyphenated style
+      - vp
+      - chief medical executive
+      - chief nursing executive
+      - chief strategy officer
+      - chief communications officer
+    min_chars: 40                        # don’t discard short card text
+    include_name_heading: true
+    synth_name_title_line: true
+    include_subheadings: true
+    include_h4_in_span: true
+    use_css_fallback: true               # cards/grid backup
+    css_min_cards: 2
+    use_chromote: false                  # start without JS render; turn on later only if needed

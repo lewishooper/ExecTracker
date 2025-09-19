@@ -143,6 +143,164 @@ css_card_fallback <- function(doc,
   
   paste(parts, collapse = "\n\n--- CARD ---\n\n")
 }
+# ---------- List fallback (for UL/OL pages with "Name – Title" items) ----------
+css_list_fallback <- function(doc,
+                              min_items = 3,
+                              container_sel = "main, article, [role='main'], .content, .container, section",
+                              list_sel = "ul, ol") {
+  containers <- rvest::html_elements(doc, container_sel)
+  if (length(containers) == 0) return("")
+  
+  lists <- rvest::html_elements(containers, list_sel)
+  if (length(lists) == 0) return("")
+  
+  items <- rvest::html_elements(lists, "li")
+  if (length(items) < min_items) return("")
+  
+  # Helpers to split "Name – Title" variants robustly
+  split_name_title <- function(x) {
+    s <- stringr::str_squish(x)
+    # common separators: em dash, en dash, hyphen, comma
+    parts <- unlist(strsplit(s, "\\s+—\\s+|\\s+–\\s+|\\s+-\\s+|,\\s+", perl = TRUE))
+    parts <- parts[nzchar(parts)]
+    if (length(parts) >= 2) {
+      name  <- parts[1]
+      title <- paste(parts[-1], collapse = ", ")
+      return(list(name = name, title = title))
+    } else {
+      # fallback: assume first 2-4 words are name-like if possible
+      # very light heuristic; keep original as title if unsure
+      return(list(name = "", title = s))
+    }
+  }
+  
+  blocks <- vapply(items, function(li) {
+    # Prefer explicit name/title sub-elements if present
+    nm <- rvest::html_text2(rvest::html_element(li, "strong, b, .name, .person__name, .title--name"))
+    tt <- rvest::html_text2(rvest::html_element(li, "em, i, .title, .role, .position, .person__role"))
+    
+    if (!nzchar(nm) || !nzchar(tt)) {
+      # try split on combined text
+      combined <- rvest::html_text2(li)
+      split <- split_name_title(combined)
+      if (!nzchar(nm)) nm <- split$name
+      if (!nzchar(tt)) tt <- split$title
+    }
+    
+    nm <- stringr::str_squish(nm)
+    tt <- stringr::str_squish(tt)
+    
+    # compose a compact section per item
+    paste(
+      if (nzchar(nm)) paste0("## ", nm) else NULL,
+      if (nzchar(tt)) paste0("### ", tt) else NULL,
+      if (nzchar(nm) && nzchar(tt)) paste0(nm, ", ", tt) else NULL,
+      sep = "\n"
+    )
+  }, character(1))
+  
+  blocks <- blocks[nzchar(blocks)]
+  if (length(blocks) == 0) return("")
+  paste(blocks, collapse = "\n\n--- LIST ITEM ---\n\n")
+}
+# End fallback
+## Second fall back for sequence_name_title_fallback
+# ---------- Sequence fallback (for one-paragraph "Name, Title Name, Title ..." blobs) ----------
+sequence_name_title_fallback <- function(
+    doc,
+    container_sel = "main, article, [role='main'], .content, .container, section",
+    anchor_regex  = "(?i)senior leadership|executive leadership|leadership team"
+) {
+  containers <- rvest::html_elements(doc, container_sel)
+  if (length(containers) == 0) return("")
+  
+  # Prefer the first container that contains our anchor text; otherwise use the first container
+  chosen <- NULL
+  for (c in containers) {
+    tx <- rvest::html_text2(c)
+    if (grepl(anchor_regex, tx)) { chosen <- c; break }
+  }
+  if (is.null(chosen)) chosen <- containers[[1]]
+  
+  # Pull consolidated text and normalize whitespace
+  blob <- rvest::html_text2(chosen)
+  blob <- stringr::str_squish(blob)
+  
+  if (!nzchar(blob)) return("")
+  
+  # Regex to capture repeating "Name, Title" chunks.
+  # - Name: optional "Dr.", then 2–4 capitalized tokens (handles middle names)
+  # - Title: everything until the next "Name, " start or end-of-string
+  pat <- paste0(
+    "((?:Dr\\.\\s+)?[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,3}),\\s+",
+    "(.+?)(?=(?:\\s+(?:Dr\\.\\s+)?[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,3},\\s+)|$)"
+  )
+  
+  m <- gregexpr(pat, blob, perl = TRUE)
+  hits <- regmatches(blob, m)[[1]]
+  if (length(hits) == 0) return("")
+  
+  # Extract capture groups (name, title)
+  caps <- regmatches(blob, m, invert = FALSE)[[1]]
+  # Build sections
+  out <- character(length(hits))
+  ms  <- regexec(pat, blob, perl = TRUE)
+  for (i in seq_along(hits)) {
+    mi <- regexec(pat, hits[i], perl = TRUE)[[1]]
+    gi <- regmatches(hits[i], mi)[[1]]
+    if (length(gi) >= 3) {
+      nm <- stringr::str_squish(gi[2])
+      tt <- stringr::str_squish(gi[3])
+      out[i] <- paste(
+        paste0("## ", nm),
+        paste0("### ", tt),
+        paste0(nm, ", ", tt),
+        sep = "\n"
+      )
+    }
+  }
+  out <- out[nzchar(out)]
+  if (length(out) == 0) return("")
+  paste(out, collapse = "\n\n--- SEQ ITEM ---\n\n")
+}
+## end fall back for one paragraph Sequence_name_title_fallback
+### Normalize_name_title_sequence
+# ---------- Normalize "Name, Title Name, Title ..." text blobs into sections ----------
+normalize_name_title_sequences <- function(text) {
+  if (!nzchar(text)) return(text)
+  # Pattern:
+  #  - optional "Dr." prefix
+  #  - Name = 2–4 capitalized tokens (handles hyphens/apostrophes)
+  #  - a comma
+  #  - Title = anything until the next "Name," start or end-of-string
+  pat <- paste0(
+    "((?:Dr\\.?\\s+)?[A-Z][A-Za-z'\\-]+(?:\\s+[A-Z][A-Za-z'\\-]+){1,3}),\\s+",
+    "(.+?)(?=(?:\\s+(?:Dr\\.?\\s+)?[A-Z][A-Za-z'\\-]+(?:\\s+[A-Z][A-Za-z'\\-]+){1,3},\\s+)|$)"
+  )
+  
+  mm <- stringr::str_match_all(text, pat)[[1]]
+  if (is.null(dim(mm)) || nrow(mm) < 2) return(text)  # need at least 2 pairs to be sure it’s a sequence
+  
+  # optional: drop junk “titles” that aren’t roles (e.g., Organizational Chart)
+  keep <- !grepl("(?i)organizational\\s+chart|download|pdf|contact|learn\\s+more", mm[,3])
+  mm <- mm[keep, , drop = FALSE]
+  if (nrow(mm) == 0) return(text)
+  
+  sections <- vapply(seq_len(nrow(mm)), function(i) {
+    nm <- stringr::str_squish(mm[i, 2])
+    tt <- stringr::str_squish(mm[i, 3])
+    paste(
+      paste0("## ", nm),
+      paste0("### ", tt),
+      paste0(nm, ", ", tt),
+      sep = "\n"
+    )
+  }, character(1))
+  
+  paste(sections, collapse = "\n\n--- SEQ ITEM ---\n\n")
+}
+## end Normalize_name_title_sequence
+
 
 # ---------- Heading-aware harvest (includes Name + synthesized line) ----------
 harvest_sections_by_headings <- function(
@@ -286,7 +444,7 @@ fetch_leadership_profiled <- function(
     out_dir = "data/raw",
     prefix  = "leaders"
 ) {
-  dir_create(out_dir, recurse = TRUE)
+  fs::dir_create(out_dir, recurse = TRUE)
   
   p <- profile_for_url(url, profiles)
   
@@ -295,22 +453,23 @@ fetch_leadership_profiled <- function(
   TITLE_REGEX <<- build_title_regex(TITLES_RUN)
   
   # Fetch HTML (plain). If you later add chromote, branch on p$use_chromote.
-  req <- request(url) |>
-    req_user_agent("profiled/1.0") |>
-    req_headers(Accept = "text/html,*/*;q=0.8") |>
-    req_timeout(30)
-  resp <- try(req_perform(req), silent = TRUE)
-  if (inherits(resp, "try-error") || resp_status(resp) >= 400) {
+  req <- httr2::request(url) |>
+    httr2::req_user_agent("profiled/1.0") |>
+    httr2::req_headers(Accept = "text/html,*/*;q=0.8") |>
+    httr2::req_timeout(30)
+  resp <- try(httr2::req_perform(req), silent = TRUE)
+  if (inherits(resp, "try-error") || httr2::resp_status(resp) >= 400) {
     msg <- if (inherits(resp, "try-error")) paste("fetch failed:", attr(resp, "condition")$message)
-    else paste("HTTP", resp_status(resp))
+    else paste("HTTP", httr2::resp_status(resp))
     return(list(ok = FALSE, message = msg, text = "", file = NA_character_, profile = p))
   }
   
-  doc <- try(read_html(resp_body_string(resp)), silent = TRUE)
+  doc <- try(xml2::read_html(httr2::resp_body_string(resp)), silent = TRUE)
   if (inherits(doc, "try-error")) {
     return(list(ok = FALSE, message = "parse failed", text = "", file = NA_character_, profile = p))
   }
   
+  # Primary: heading-aware harvest with profile knobs
   section_txt <- harvest_sections_by_headings(
     doc,
     heading_levels        = p$heading_levels,
@@ -324,6 +483,7 @@ fetch_leadership_profiled <- function(
     min_chars             = p$min_chars
   )
   
+  # 4) If thin, try CSS card fallback
   if (!nzchar(section_txt) || nchar(section_txt) < p$min_chars) {
     if (isTRUE(p$use_css_fallback)) {
       fb <- css_card_fallback(doc, min_cards = p$css_min_cards %||% 3)
@@ -331,20 +491,46 @@ fetch_leadership_profiled <- function(
     }
   }
   
+  # 4b) If still thin, try list fallback (for UL/OL "Name – Title" lists)
+  if (!nzchar(section_txt) || nchar(section_txt) < p$min_chars) {
+    if (isTRUE(p$use_list_fallback)) {
+      lf <- css_list_fallback(doc, min_items = p$list_min_items %||% 2)
+      if (nzchar(lf) && nchar(lf) > nchar(section_txt)) section_txt <- lf
+    }
+  }
+  
+  # 4c) If still messy, normalize paragraphs that contain repeated "Name, Title" pairs
+  if (isTRUE(p$normalize_sequences)) {
+    rebuilt <- normalize_name_title_sequences(section_txt)
+    # Replace only if we actually built structured sections (heuristic: contains our separator or headings)
+    if (nzchar(rebuilt) && (nchar(rebuilt) > 0) &&
+        (grepl("^##\\s", rebuilt) || grepl("--- SEQ ITEM ---", rebuilt))) {
+      section_txt <- rebuilt
+    }
+  }
+  # end 4c) if still messy
+  
   if (!nzchar(section_txt)) {
     return(list(ok = FALSE, message = "no text after harvest/fallback", text = "", file = NA_character_, profile = p))
   }
   
-  host <- url_parse(url)$domain %||% "site"
-  path_bits <- url_parse(url)$path %||% ""
+  
+  if (!nzchar(section_txt)) {
+    return(list(ok = FALSE, message = "no text after harvest/fallback", text = "", file = NA_character_, profile = p))
+  }
+  
+  # Save .txt
+  host <- urltools::url_parse(url)$domain %||% "site"
+  path_bits <- urltools::url_parse(url)$path %||% ""
   stem <- paste0(safe(host), "_", safe(path_bits)); if (!nzchar(stem)) stem <- safe(host)
   stamp <- format(Sys.time(), "%Y%m%d-%H%M%S")
-  fname <- glue("{prefix}_{stem}_{stamp}.txt") |> safe()
+  fname <- glue::glue("{prefix}_{stem}_{stamp}.txt") |> safe()
   fpath <- file.path(out_dir, fname)
   writeLines(section_txt, fpath, useBytes = TRUE)
   
   list(ok = TRUE, message = "ok", text = section_txt, file = fpath, profile = p)
 }
+# end fetch_leadership Profiled function
 
 # ---------- Patterns that boost confidence ----------
 PATTERN_NAME_COMMA_TITLE <- function(name, title_regex) paste0("(?i)\\b", str_replace_all(name,"\\.","\\."), "\\b\\s*,\\s*(?:the\\s+)?", title_regex)

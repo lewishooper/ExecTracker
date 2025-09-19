@@ -31,7 +31,7 @@ normalize_url <- function(u) {
 run_batch_with_profiles <- function(
     urls_or_df,
     url_col       = url_column,  # set if you pass a data.frame (e.g., "LeadershipURL")
-    profiles_path = "config/hospital_profiles.yaml",
+    profiles_path = "E:/ExecTracker/config/hospital_profiles.yaml",
     out_dir       = "E:/ExecTracker/Outputs",
     csv_out       = file.path(out_dir, "leadership_hits.csv")
 ) {
